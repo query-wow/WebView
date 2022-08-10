@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Xilium.CefGlue;
@@ -118,6 +120,21 @@ namespace WebViewControl {
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void Initialize() {
+
+            string userAgent;
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
+                userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.6 Safari/605.1.15";
+            } else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) {
+                userAgent = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0";
+            } else {
+                userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.81 Safari/537.36";
+            }
+
+            Settings.UserAgent = userAgent;
+            Settings.CachePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IdealistaBrowser", "Cache");
+
+
             WebViewLoader.Initialize(Settings);
 
             chromium = new ChromiumBrowser();
@@ -204,7 +221,7 @@ namespace WebViewControl {
 
                 // dispose the js executors before the browser to prevent (the browser) from throwing cancellation exceptions
                 DisposeJavascriptExecutors();
-                
+
                 foreach (var disposable in disposables) {
                     disposable?.Dispose();
                 }
@@ -375,6 +392,51 @@ namespace WebViewControl {
                 var frameName = e.Frame.Name; // store frame name beforehand (cannot do it later, since frame might be disposed)
                 // ignore aborts, to prevent situations where we try to load an address inside Load failed handler (and its aborted)
                 AsyncExecuteInUI(() => LoadFailed?.Invoke(url, (int)e.ErrorCode, frameName));
+            }
+        }
+        public void InjectJsDialogFilePaths(List<string> files) {
+            InternalDialogHandler handler = (InternalDialogHandler)chromium.DialogHandler;
+
+            handler.FilesPaths = files;
+        }
+
+        public bool WasFileDialogOpened() {
+            InternalDialogHandler handler = (InternalDialogHandler)chromium.DialogHandler;
+            return handler.WasDialogOpened;
+        }
+
+        public void OnFilesUploaded(Action action = null) {
+            InternalDialogHandler handler = (InternalDialogHandler)chromium.DialogHandler;
+            handler.WasDialogOpened = false;
+            handler.FilesPaths = null;
+            action?.Invoke();
+        }
+
+
+        public void MoveMouseWheel(int x, int y) {
+            try {
+                chromium.GetBrowser().GetHost().SendMouseWheelEvent(new CefMouseEvent(x, y, CefEventFlags.None), x, y);
+            } catch (System.Exception ex) {
+                ForwardException(ExceptionDispatchInfo.Capture(ex));
+            }
+        }
+
+
+        public void MoveMouse(int x, int y) {
+            try {
+                chromium.GetBrowser().GetHost().SendMouseMoveEvent(new CefMouseEvent(x, y, CefEventFlags.None), true);
+            } catch (System.Exception ex) {
+                ForwardException(ExceptionDispatchInfo.Capture(ex));
+            }
+        }
+
+        public void DoMouseClick(int x, int y) {
+            try {
+                chromium.GetBrowser().GetHost().SendMouseClickEvent(new CefMouseEvent(x, y, CefEventFlags.LeftMouseButton), CefMouseButtonType.Left, false, 1);
+                Thread.Sleep(200);
+                chromium.GetBrowser().GetHost().SendMouseClickEvent(new CefMouseEvent(x, y, CefEventFlags.LeftMouseButton), CefMouseButtonType.Left, true, 1);
+            } catch (System.Exception ex) {
+                ForwardException(ExceptionDispatchInfo.Capture(ex));
             }
         }
 
